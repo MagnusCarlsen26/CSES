@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Commit new CSES solution files following repo convention:
+# Commit CSES solution files following repo convention:
 #   feat: <problem number>. <problem name>
 # Stages the .py file and its matching .cph prob metadata.
 
@@ -15,14 +15,14 @@ usage() {
   cat <<'EOF'
 Usage: commit-solution.sh [options] [file.py ...]
 
-Commit untracked CSES solution files. Each file is committed separately with
-message: feat: <basename without .py>
+Commit CSES solution files. Each file is committed separately with message:
+feat: <basename without .py>
 
 Options:
   -n, --dry-run   Show what would be committed without committing
   -h, --help      Show this help
 
-With no file arguments, all untracked .py files in the repo are committed.
+With no file arguments, commits all new or modified solution .py files.
 EOF
 }
 
@@ -35,9 +35,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-add_prob_files() {
+is_solution_file() {
+  [[ "$1" == */*.py ]]
+}
+
+prob_files_for() {
   local py_file="$1"
-  local dir base cph_dir prob
+  local dir base cph_dir
 
   dir="$(dirname "$py_file")"
   base="$(basename "$py_file")"
@@ -46,14 +50,75 @@ add_prob_files() {
   [[ -d "$cph_dir" ]] || return 0
 
   shopt -s nullglob
-  for prob in "$cph_dir/.$base"_*.prob; do
+  printf '%s\0' "$cph_dir/.$base"_*.prob
+  shopt -u nullglob
+}
+
+file_has_changes() {
+  local file="$1"
+
+  if [[ ! -e "$file" ]]; then
+    return 1
+  fi
+
+  if ! git ls-files --error-unmatch "$file" &>/dev/null; then
+    return 0
+  fi
+
+  ! git diff --quiet -- "$file" || ! git diff --cached --quiet -- "$file"
+}
+
+solution_has_changes() {
+  local py_file="$1"
+  local prob
+
+  file_has_changes "$py_file" && return 0
+
+  while IFS= read -r -d '' prob; do
+    file_has_changes "$prob" && return 0
+  done < <(prob_files_for "$py_file")
+
+  return 1
+}
+
+collect_changed_solutions() {
+  local -n _out=$1
+  local seen=$'\n'
+  local file
+
+  add_file() {
+    local candidate="$1"
+    is_solution_file "$candidate" || return 0
+    solution_has_changes "$candidate" || return 0
+    [[ "$seen" == *$'\n'"$candidate"$'\n'* ]] && return 0
+    seen+="$candidate"$'\n'
+    _out+=("$candidate")
+  }
+
+  while IFS= read -r -d '' file; do
+    add_file "$file"
+  done < <(git ls-files --others --exclude-standard -z -- '*.py')
+
+  while IFS= read -r -d '' file; do
+    add_file "$file"
+  done < <(git diff --name-only -z -- '*.py')
+
+  while IFS= read -r -d '' file; do
+    add_file "$file"
+  done < <(git diff --cached --name-only -z -- '*.py')
+}
+
+stage_prob_files() {
+  local py_file="$1"
+  local prob
+
+  while IFS= read -r -d '' prob; do
     if $DRY_RUN; then
       echo "  $prob"
-    else
+    elif file_has_changes "$prob"; then
       git add "$prob"
     fi
-  done
-  shopt -u nullglob
+  done < <(prob_files_for "$py_file")
 }
 
 commit_solution() {
@@ -65,13 +130,13 @@ commit_solution() {
     return 1
   fi
 
-  if [[ "$py_file" != *.py ]]; then
-    echo "Error: not a Python file: $py_file" >&2
+  if ! is_solution_file "$py_file"; then
+    echo "Error: not a solution file: $py_file" >&2
     return 1
   fi
 
-  if git ls-files --error-unmatch "$py_file" &>/dev/null; then
-    echo "Skipping already tracked file: $py_file"
+  if ! solution_has_changes "$py_file"; then
+    echo "Skipping (no changes): $py_file"
     return 0
   fi
 
@@ -80,25 +145,28 @@ commit_solution() {
   if $DRY_RUN; then
     echo "Would commit: feat: $name"
     echo "  $py_file"
-    add_prob_files "$py_file"
+    stage_prob_files "$py_file"
     return 0
   fi
 
   git add "$py_file"
-  add_prob_files "$py_file"
+  stage_prob_files "$py_file"
+
+  if git diff --cached --quiet; then
+    echo "Skipping (nothing staged): $py_file"
+    return 0
+  fi
 
   git commit -m "feat: $name"
   echo "Committed: feat: $name"
 }
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  while IFS= read -r -d '' py_file; do
-    FILES+=("$py_file")
-  done < <(git ls-files --others --exclude-standard -z -- '*.py')
+  collect_changed_solutions FILES
 fi
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "No untracked solution files to commit."
+  echo "No changed solution files to commit."
   exit 0
 fi
 
