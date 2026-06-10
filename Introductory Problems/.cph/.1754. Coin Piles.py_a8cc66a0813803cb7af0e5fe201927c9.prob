@@ -1,0 +1,1 @@
+{"name":"Local: 1754","url":"/home/khushal/Desktop/DSA/CSES/Introductory Problems/1754. Coin Piles.py","tests":[{"id":1781069453162,"input":"3\n2 1\n2 2\n3 3","output":"YES\nNO\nYES"}],"interactive":false,"memoryLimit":1024,"timeLimit":3000,"srcPath":"/home/khushal/Desktop/DSA/CSES/Introductory Problems/1754. Coin Piles.py","group":"local","local":true}
