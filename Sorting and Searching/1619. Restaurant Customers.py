@@ -17,7 +17,7 @@ def createMapper(customerInOutTimes: list) -> dict:
         if i not in d:
             d[i] = c
             c += 1
-
+11
     return d
 
 
